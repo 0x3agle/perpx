@@ -148,7 +148,13 @@ contract Perp {
         reservedLiquidity =
             reservedLiquidity -
             (oldPosition.size * oldPosition.openPrice) +
-            (oldPosition.size + amount * newEntryPrice);
+            ((oldPosition.size + amount) * newEntryPrice);
+
+        //Check to ensure that the position doesn't exceed maximum leverage
+        require(
+            oldPosition.collateral * maxLeverage >=
+                ((oldPosition.size + amount) * newEntryPrice)
+        );
     }
 
     //Function to increase the collateral of an existing position
