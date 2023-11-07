@@ -3,8 +3,9 @@ pragma solidity ^0.8.19;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {AggregatorV3Interface} from "./oracle.sol";
+import {AggregatorV3Interface} from "./MockOracle.sol";
 import {Pool} from "./Pool.sol";
+import "./lib/helpers.sol";
 
 //  ▄▄▄▄▄▄▄▄▄▄▄  ▄▄▄▄▄▄▄▄▄▄▄  ▄▄▄▄▄▄▄▄▄▄▄  ▄▄▄▄▄▄▄▄▄▄▄  ▄       ▄
 // ▐░░░░░░░░░░░▌▐░░░░░░░░░░░▌▐░░░░░░░░░░░▌▐░░░░░░░░░░░▌▐░▌     ▐░▌
@@ -21,45 +22,46 @@ import {Pool} from "./Pool.sol";
 contract Perp {
     using SafeERC20 for IERC20;
 
+    uint128 public constant SCALE = 1e8;
+
     AggregatorV3Interface oracle;
     IERC20 asset;
-    Pool pool;
+    Pool public pool;
     uint8 public maxLeverage;
     uint256 totalLiquidity; //Total liquidity available in the protocol
     uint256 reservedLiquidity; //Liquidity reserved for open positions
 
-    //Define the types of positions that can be taken
-    enum PositionType {
-        Long,
-        Short
-    }
-
-    struct Position {
-        PositionType positionType;
-        uint256 size;
-        uint256 collateral;
-        uint256 openPrice; //The price at which the position was opened
-        bool isOpen; //A flag to indicate if the position is open or closed
-    }
-
     mapping(address => Position) public positions;
 
     constructor(address _oracle, address _asset, uint8 _maxLeverage) {
-        require(_oracle != address(0) && _asset != address(0), "Invalid address");
+        require(
+            _oracle != address(0) && _asset != address(0),
+            "Invalid address"
+        );
         oracle = AggregatorV3Interface(_oracle);
         asset = IERC20(_asset);
         maxLeverage = _maxLeverage;
         pool = new Pool(asset);
     }
 
-    function openPosition(uint256 _size, uint256 _collateral, PositionType _positionType) public {
+    function openPosition(
+        uint256 _size,
+        uint256 _collateral,
+        PositionType _positionType
+    ) public {
         require(!positions[msg.sender].isOpen, "Position already open!");
-        require(_size > 0 && _collateral > 0 && _collateral * maxLeverage >= _size, "Invalid inputs");
+        require(
+            _size > 0 && _collateral > 0 && _collateral * maxLeverage >= _size,
+            "Invalid inputs"
+        );
 
         uint256 currentPrice = getRealtimePrice();
-        uint256 posValue = _size * currentPrice;
+        uint256 posValue = (_size * currentPrice) / SCALE;
         // Ensure there's enough liquidity to open the position.
-        require(posValue <= totalLiquidity - reservedLiquidity, "Insufficient liquidity");
+        require(
+            posValue <= totalLiquidity - reservedLiquidity,
+            "Insufficient liquidity"
+        );
 
         asset.safeTransferFrom(msg.sender, address(this), _collateral);
 
@@ -80,14 +82,19 @@ contract Perp {
         Position memory oldPosition = positions[msg.sender];
 
         uint256 currentPrice = getRealtimePrice();
-        uint256 posValue = amount * currentPrice;
-
-        require(posValue <= totalLiquidity - reservedLiquidity, "Insufficient liquidity to increase the size");
-
-        uint256 newEntryPrice = ((oldPosition.size * oldPosition.openPrice) + (posValue)) / (oldPosition.size + amount);
+        uint256 posValue = (amount * currentPrice) / SCALE;
 
         require(
-            oldPosition.collateral * maxLeverage >= ((oldPosition.size + amount) * newEntryPrice),
+            posValue <= totalLiquidity - reservedLiquidity,
+            "Insufficient liquidity to increase the size"
+        );
+
+        uint256 newEntryPrice = (((oldPosition.size * oldPosition.openPrice) /
+            SCALE) + (posValue)) / (oldPosition.size + amount);
+
+        require(
+            oldPosition.collateral * maxLeverage >=
+                ((oldPosition.size + amount) * newEntryPrice),
             "Exceeding Maximum Leverage"
         );
 
@@ -99,8 +106,10 @@ contract Perp {
             isOpen: oldPosition.isOpen
         });
         positions[msg.sender] = newPosition;
-        reservedLiquidity = reservedLiquidity - (oldPosition.size * oldPosition.openPrice)
-            + ((oldPosition.size + amount) * newEntryPrice);
+        reservedLiquidity =
+            reservedLiquidity -
+            (oldPosition.size * oldPosition.openPrice) +
+            ((oldPosition.size + amount) * newEntryPrice);
     }
 
     function increaseCollateral(uint256 amount) public {
@@ -117,22 +126,29 @@ contract Perp {
         require(pos.isOpen == true, "Position not open!");
 
         uint256 currentPrice = getRealtimePrice();
-        uint256 posValue = pos.size * pos.openPrice;
-        uint256 currentPosValue = pos.size * currentPrice;
+        uint256 posValue = (pos.size * pos.openPrice) / SCALE;
+        uint256 currentPosValue = (pos.size * currentPrice) / SCALE;
         int256 valueChange = int256(currentPosValue) - int256(posValue);
 
         if (pos.positionType == PositionType.Long) {
             if (valueChange >= 0) {
                 //In case of positive PnL
-                asset.safeTransferFrom(address(pool), msg.sender, uint256(valueChange));
+                asset.safeTransferFrom(
+                    address(pool),
+                    msg.sender,
+                    uint256(valueChange)
+                );
                 asset.safeTransfer(msg.sender, pos.collateral);
             } else {
                 //In case of negative Pnl
-                uint256 loss =
-                    pos.collateral > uint256(-valueChange) ? pos.collateral - uint256(-valueChange) : pos.collateral;
+                uint256 loss = pos.collateral > uint256(-valueChange)
+                    ? pos.collateral - uint256(-valueChange)
+                    : pos.collateral;
                 asset.safeTransfer(address(pool), loss);
 
-                uint256 remainingCollateral = pos.collateral > loss ? pos.collateral - loss : 0;
+                uint256 remainingCollateral = pos.collateral > loss
+                    ? pos.collateral - loss
+                    : 0;
                 if (remainingCollateral > 0) {
                     asset.safeTransfer(msg.sender, remainingCollateral);
                 }
@@ -140,20 +156,28 @@ contract Perp {
         } else {
             if (valueChange <= 0) {
                 //In case of positive PnL
-                asset.safeTransferFrom(address(pool), msg.sender, uint256(-valueChange));
+                asset.safeTransferFrom(
+                    address(pool),
+                    msg.sender,
+                    uint256(-valueChange)
+                );
                 asset.safeTransfer(msg.sender, pos.collateral);
             } else {
                 //In case of negative Pnl
-                uint256 loss =
-                    pos.collateral > uint256(valueChange) ? pos.collateral - uint256(valueChange) : pos.collateral;
+                uint256 loss = pos.collateral > uint256(valueChange)
+                    ? pos.collateral - uint256(valueChange)
+                    : pos.collateral;
                 asset.safeTransfer(address(pool), loss);
 
-                uint256 remainingCollateral = pos.collateral > loss ? pos.collateral - loss : 0;
+                uint256 remainingCollateral = pos.collateral > loss
+                    ? pos.collateral - loss
+                    : 0;
                 if (remainingCollateral > 0) {
                     asset.safeTransfer(msg.sender, remainingCollateral);
                 }
             }
         }
+        reservedLiquidity -= posValue;
 
         delete positions[msg.sender];
     }
@@ -161,18 +185,21 @@ contract Perp {
     function liquidate(address user) public returns (uint256 amountLiquidated) {
         Position memory pos = positions[user];
         uint256 currentPrice = getRealtimePrice();
-        uint256 posValue = pos.size * pos.openPrice;
-        uint256 currentPosValue = pos.size * currentPrice;
+        uint256 posValue = (pos.size * pos.openPrice) / SCALE;
+        uint256 currentPosValue = (pos.size * currentPrice) / SCALE;
         int256 valueChange = int256(currentPosValue) - int256(posValue);
         if (
-            (pos.positionType == PositionType.Long && valueChange < 0)
-                || (pos.positionType == PositionType.Short && valueChange > 0)
+            (pos.positionType == PositionType.Long && valueChange < 0) ||
+            (pos.positionType == PositionType.Short && valueChange > 0)
         ) {
             uint256 loss = uint256(abs(valueChange));
-            uint256 amountToLiquidate = loss > pos.collateral ? pos.collateral : loss;
+            uint256 amountToLiquidate = loss > pos.collateral
+                ? pos.collateral
+                : loss;
             if (amountToLiquidate > 0) {
                 asset.safeTransfer(address(pool), amountToLiquidate);
             }
+            reservedLiquidity -= posValue;
             delete positions[user];
             return amountToLiquidate;
         }
@@ -186,7 +213,7 @@ contract Perp {
     }
 
     function getRealtimePrice() public view returns (uint256) {
-        (, int256 intAnswer,,,) = oracle.latestRoundData();
+        (, int256 intAnswer, , , ) = oracle.latestRoundData();
 
         return uint256(intAnswer);
     }
@@ -197,7 +224,8 @@ contract Perp {
         uint256 newPoolLiquidity = asset.balanceOf(address(pool));
         require(newPoolLiquidity > reservedLiquidity, "Liquidity in use");
 
-        int256 liquidityChange = int256(totalLiquidity) - int256(newPoolLiquidity);
+        int256 liquidityChange = int256(newPoolLiquidity) -
+            int256(totalLiquidity);
 
         if (liquidityChange >= 0) {
             totalLiquidity += uint256(liquidityChange);

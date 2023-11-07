@@ -28,3 +28,7 @@ The `PerpX` protocol serves as an advanced trading platform for users interested
 ### Risk Management
 
 - **Liquidation**: The protocol includes a liquidation mechanism to close undercollateralized positions, protecting the system and LPs from excessive losses.
+
+BTC Amount - 8 decimals
+Collateral (USDC) - 18 decimals
+SCALE = 8 decimals
