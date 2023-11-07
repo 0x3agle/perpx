@@ -22,13 +22,16 @@ import "./lib/helpers.sol";
 contract Perp {
     using SafeERC20 for IERC20;
 
-    uint public constant SCALE = 1e8;
+    error NotEnoughLiquidity();
+    error PositionNotOpen();
+    error PositionAlreadyOpen();
 
     AggregatorV3Interface oracle;
     IERC20 asset;
     Pool public pool;
     uint8 public maxLeverage;
 
+    uint public constant SCALE = 1e8;
     uint openShortInUSD;
     uint openLongInUSD;
     uint openShortInBTC;
@@ -54,7 +57,9 @@ contract Perp {
         uint256 _collateral,
         PositionType _positionType
     ) public {
-        require(!positions[msg.sender].isOpen, "Position already open!");
+        if (positions[msg.sender].isOpen) {
+            revert PositionAlreadyOpen();
+        }
         require(
             _size > 0 && _collateral > 0 && _collateral * maxLeverage >= _size,
             "Invalid inputs"
@@ -63,10 +68,9 @@ contract Perp {
         uint256 currentPrice = getRealtimePrice();
         uint256 posValue = (_size * currentPrice) / SCALE;
         // Ensure there's enough liquidity to open the position.
-        require(
-            posValue <= getAvailableLiquidity(),
-            "Insufficient liquidity to increase the size"
-        );
+        if (posValue > getAvailableLiquidity()) {
+            revert NotEnoughLiquidity();
+        }
 
         asset.safeTransferFrom(msg.sender, address(this), _collateral);
 
@@ -88,7 +92,9 @@ contract Perp {
     }
 
     function increaseSize(uint256 amount) public {
-        require(positions[msg.sender].isOpen == true, "Position not open!");
+        if (!positions[msg.sender].isOpen) {
+            revert PositionNotOpen();
+        }
 
         Position memory oldPosition = positions[msg.sender];
 
@@ -134,7 +140,9 @@ contract Perp {
     }
 
     function increaseCollateral(uint256 amount) public {
-        require(positions[msg.sender].isOpen, "Position not open");
+        if (!positions[msg.sender].isOpen) {
+            revert PositionNotOpen();
+        }
         require(amount > 0, "Amount must be greater than zero");
 
         asset.safeTransferFrom(msg.sender, address(this), amount);
@@ -144,7 +152,9 @@ contract Perp {
 
     function closePosition() public {
         Position memory pos = positions[msg.sender];
-        require(pos.isOpen == true, "Position not open!");
+        if (!pos.isOpen) {
+            revert PositionNotOpen();
+        }
 
         uint256 currentPrice = getRealtimePrice();
         uint256 posValue = (pos.size * pos.openPrice) / SCALE;
@@ -211,6 +221,9 @@ contract Perp {
 
     function liquidate(address user) public returns (uint256 amountLiquidated) {
         Position memory pos = positions[user];
+        if (!pos.isOpen) {
+            revert PositionNotOpen();
+        }
         uint256 currentPrice = getRealtimePrice();
         uint256 posValue = (pos.size * pos.openPrice) / SCALE;
         uint256 currentPosValue = (pos.size * currentPrice) / SCALE;
@@ -286,7 +299,7 @@ contract Perp {
         require(msg.sender == address(pool), "Not authorized");
         uint availableLiquidity = getAvailableLiquidity();
         if (availableLiquidity == 0) {
-            revert();
+            revert NotEnoughLiquidity();
         }
     }
 }

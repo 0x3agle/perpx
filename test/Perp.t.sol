@@ -42,7 +42,7 @@ contract PerpXTest is Test {
 
     /**
      * @dev
-     * A test to provide liquidity
+     * Provide liquidity
      */
     function test_ProvideLiquidity() public {
         uint256 charlieShares = _provideLiquidity(charlie, 5000e18);
@@ -63,8 +63,8 @@ contract PerpXTest is Test {
 
     /**
      * @dev
-     * A test to open a position
-     *      Can open a position if enough liquidity
+     * Open a position
+     *      Can open a position if enough liquidity & Collateral
      *      Cannot open a position if not enough liquidity
      *      Cannot open a position if not enough collateral
      */
@@ -114,26 +114,169 @@ contract PerpXTest is Test {
         vm.stopPrank();
     }
 
-    /**
-     * @dev
-     * A test to add more collateral
-     *      Can add collateral if position is open
-     *      Cannot add collateral if position is closed
-     */
+    function test_openPosition_notEnoughLiquidity() public {
+        //Add liquidity to Pool
+        _provideLiquidity(charlie, 500e18);
+
+        //Alice opens a Long with size of 5 BTC but does not provide enough collateral
+        vm.startPrank(alice);
+        usd.approve(address(perp), 1000e18);
+        vm.expectRevert();
+        perp.openPosition(5e8, 2000e18, PositionType.Long);
+        vm.stopPrank();
+    }
 
     /**
      * @dev
-     * A test to withdraw liquidity
-     *      Cannot withdraw reserved liquidity
+     * Add more collateral
+     */
+
+    function test_addCollateral() public {
+        //Add liquidity to Pool
+        _provideLiquidity(charlie, 50000e18);
+        _provideLiquidity(dave, 50000e18);
+
+        //Alice opens a Long with size of 5 BTC
+        vm.startPrank(alice);
+        usd.approve(address(perp), 5000e18);
+        perp.openPosition(5e8, 2000e18, PositionType.Long);
+
+        //Alice increases the collateral by 1000 USD
+        perp.increaseCollateral(1000e18);
+        vm.stopPrank();
+
+        (, , uint256 collateral, , ) = perp.positions(address(alice));
+
+        assert(collateral == 3000e18);
+    }
+
+    /**
+     * @dev
+     * Withdraw liquidity
      *      Can withdraw unreserved liquidity
+     *      Cannot withdraw reserved liquidity
      */
+
+    function test_canWithdrawAvailableLiquidity() public {
+        //Add liquidity to Pool
+        _provideLiquidity(charlie, 50000e18);
+        _provideLiquidity(dave, 50000e18);
+
+        //Alice opens a Long with size of 5 BTC
+        vm.startPrank(alice);
+        usd.approve(address(perp), 2000e18);
+        perp.openPosition(5e8, 2000e18, PositionType.Long);
+        vm.stopPrank();
+
+        assert(usd.balanceOf(charlie) == 0);
+        vm.prank(charlie);
+        pool.withdraw(50000e18, charlie, charlie);
+        assert(usd.balanceOf(charlie) == 50000e18);
+    }
+
+    function test_cannotWithdrawReservedLiquidity() public {
+        //Add liquidity to Pool
+        _provideLiquidity(charlie, 50000e18);
+        _provideLiquidity(dave, 50000e18);
+
+        //Alice opens a Long with size of 5 BTC
+        vm.startPrank(alice);
+        usd.approve(address(perp), 8000e18);
+        perp.openPosition(20e8, 8000e18, PositionType.Long);
+        vm.stopPrank();
+
+        vm.prank(charlie);
+        vm.expectRevert();
+        pool.withdraw(50000e18, charlie, charlie);
+    }
 
     /**
      * @dev
-     * A test to close position
+     * Close position
      *       Long -> +PnL
      *       Long -> -PnL
      *       Short -> +PnL
      *       Short -> -PnL
      */
+
+    function test_LongPositivePnL() public {
+        uint prevBal = usd.balanceOf(alice);
+        //Add liquidity to Pool
+        _provideLiquidity(charlie, 50000e18);
+        _provideLiquidity(dave, 50000e18);
+
+        //Alice opens a Long with size of 5 BTC
+        vm.startPrank(alice);
+        usd.approve(address(perp), 5000e18);
+        perp.openPosition(5e8, 2000e18, PositionType.Long);
+
+        //Price of BTC increases by 20%
+        oracle.updateAnswer(4200e18);
+
+        //Alice closes her position to realise the profit
+        perp.closePosition();
+        uint newBal = usd.balanceOf(alice);
+        assert(newBal > prevBal);
+    }
+
+    function test_LongNegativePnL() public {
+        uint prevBal = usd.balanceOf(alice);
+        //Add liquidity to Pool
+        _provideLiquidity(charlie, 50000e18);
+        _provideLiquidity(dave, 50000e18);
+
+        //Alice opens a Long with size of 5 BTC
+        vm.startPrank(alice);
+        usd.approve(address(perp), 5000e18);
+        perp.openPosition(5e8, 2000e18, PositionType.Long);
+
+        //Price of BTC decreases by ~8%
+        oracle.updateAnswer(3200e18);
+
+        //Alice closes her position and is in loss
+        perp.closePosition();
+        uint newBal = usd.balanceOf(alice);
+        assert(newBal < prevBal);
+    }
+
+    function test_ShortPositivePnL() public {
+        uint prevBal = usd.balanceOf(bob);
+        //Add liquidity to Pool
+        _provideLiquidity(charlie, 50000e18);
+        _provideLiquidity(dave, 50000e18);
+
+        //Bob opens a Short with size of 5 BTC
+        vm.startPrank(bob);
+        usd.approve(address(perp), 5000e18);
+        perp.openPosition(5e8, 2000e18, PositionType.Short);
+
+        //Price of BTC decreases
+        oracle.updateAnswer(3300e18);
+
+        //Bob closes his position to realise the profit
+        perp.closePosition();
+        uint newBal = usd.balanceOf(bob);
+        assert(newBal > prevBal);
+    }
+
+    function test_ShortNegativePnL() public {
+        uint prevBal = usd.balanceOf(bob);
+
+        //Add liquidity to Pool
+        _provideLiquidity(charlie, 50000e18);
+        _provideLiquidity(dave, 50000e18);
+
+        //Bob opens a Short with size of 5 BTC
+        vm.startPrank(bob);
+        usd.approve(address(perp), 5000e18);
+        perp.openPosition(5e8, 2000e18, PositionType.Short);
+
+        //Price of BTC increases
+        oracle.updateAnswer(3700e18);
+
+        //Bob closes his position and is in loss
+        perp.closePosition();
+        uint newBal = usd.balanceOf(bob);
+        assert(newBal < prevBal);
+    }
 }
