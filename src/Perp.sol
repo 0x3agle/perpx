@@ -22,14 +22,17 @@ import "./lib/helpers.sol";
 contract Perp {
     using SafeERC20 for IERC20;
 
-    uint128 public constant SCALE = 1e8;
+    uint public constant SCALE = 1e8;
 
     AggregatorV3Interface oracle;
     IERC20 asset;
     Pool public pool;
     uint8 public maxLeverage;
-    uint256 totalLiquidity; //Total liquidity available in the protocol
-    uint256 reservedLiquidity; //Liquidity reserved for open positions
+
+    uint openShortInUSDC;
+    uint openLongInUSDC;
+    uint openShortInBTC;
+    uint openLongInBTC;
 
     mapping(address => Position) public positions;
 
@@ -43,6 +46,8 @@ contract Perp {
         maxLeverage = _maxLeverage;
         pool = new Pool(asset);
     }
+
+    /////////// User Functions ///////////////////////
 
     function openPosition(
         uint256 _size,
@@ -59,8 +64,8 @@ contract Perp {
         uint256 posValue = (_size * currentPrice) / SCALE;
         // Ensure there's enough liquidity to open the position.
         require(
-            posValue <= totalLiquidity - reservedLiquidity,
-            "Insufficient liquidity"
+            posValue <= getAvailableLiquidity(),
+            "Insufficient liquidity to increase the size"
         );
 
         asset.safeTransferFrom(msg.sender, address(this), _collateral);
@@ -73,7 +78,13 @@ contract Perp {
             isOpen: true
         });
 
-        reservedLiquidity += posValue;
+        if (_positionType == PositionType.Long) {
+            openLongInBTC += _size;
+            openLongInUSDC += posValue;
+        } else {
+            openShortInBTC += _size;
+            openShortInUSDC += posValue;
+        }
     }
 
     function increaseSize(uint256 amount) public {
@@ -85,7 +96,7 @@ contract Perp {
         uint256 posValue = (amount * currentPrice) / SCALE;
 
         require(
-            posValue <= totalLiquidity - reservedLiquidity,
+            posValue <= getAvailableLiquidity(),
             "Insufficient liquidity to increase the size"
         );
 
@@ -106,10 +117,20 @@ contract Perp {
             isOpen: oldPosition.isOpen
         });
         positions[msg.sender] = newPosition;
-        reservedLiquidity =
-            reservedLiquidity -
-            (oldPosition.size * oldPosition.openPrice) +
-            ((oldPosition.size + amount) * newEntryPrice);
+
+        if (oldPosition.positionType == PositionType.Long) {
+            openLongInBTC += amount;
+            openLongInUSDC =
+                openLongInUSDC -
+                (oldPosition.size * oldPosition.openPrice) +
+                ((oldPosition.size + amount) * newEntryPrice);
+        } else {
+            openShortInBTC += amount;
+            openShortInUSDC =
+                openShortInUSDC -
+                (oldPosition.size * oldPosition.openPrice) +
+                ((oldPosition.size + amount) * newEntryPrice);
+        }
     }
 
     function increaseCollateral(uint256 amount) public {
@@ -177,7 +198,13 @@ contract Perp {
                 }
             }
         }
-        reservedLiquidity -= posValue;
+        if (pos.positionType == PositionType.Long) {
+            openLongInBTC -= pos.size;
+            openLongInUSDC -= posValue;
+        } else {
+            openShortInBTC -= pos.size;
+            openShortInUSDC -= posValue;
+        }
 
         delete positions[msg.sender];
     }
@@ -199,7 +226,17 @@ contract Perp {
             if (amountToLiquidate > 0) {
                 asset.safeTransfer(address(pool), amountToLiquidate);
             }
-            reservedLiquidity -= posValue;
+            if (loss < pos.collateral) {
+                asset.safeTransfer(user, pos.collateral - loss);
+            }
+
+            if (pos.positionType == PositionType.Long) {
+                openLongInBTC -= pos.size;
+                openLongInUSDC -= posValue;
+            } else {
+                openShortInBTC -= pos.size;
+                openShortInUSDC -= posValue;
+            }
             delete positions[user];
             return amountToLiquidate;
         }
@@ -212,25 +249,44 @@ contract Perp {
         return x >= 0 ? x : -x;
     }
 
+    //Totals the PnL of all open LONG & SHORT positions and compares with Pool balance to get avaialable liquidity
+    function getAvailableLiquidity() public view returns (uint) {
+        uint poolBalance = asset.balanceOf(address(pool));
+        uint currentPrice = getRealtimePrice();
+
+        int totalShortPnL = (int(openShortInUSDC) -
+            int(openShortInBTC * currentPrice)) / int(SCALE);
+        int totalLongPnL = (int(openLongInBTC * currentPrice) -
+            int(openLongInUSDC)) / int(SCALE);
+
+        int totalOpenInterest = totalShortPnL + totalLongPnL;
+
+        // Subtracting only if poolBalance is greater than totalOpenInterest to prevent underflow.
+        if (totalOpenInterest < 0) {
+            // If totalOpenInterest is negative, the cast to uint would cause underflow.
+            // Adding the magnitude of negative totalOpenInterest to poolBalance increases available liquidity.
+            return poolBalance + uint(-totalOpenInterest);
+        } else {
+            // If totalOpenInterest is non-negative, compare and subtract it from poolBalance.
+            if (poolBalance >= uint(totalOpenInterest)) {
+                return poolBalance - uint(totalOpenInterest);
+            } else {
+                return 0;
+            }
+        }
+    }
+
     function getRealtimePrice() public view returns (uint256) {
         (, int256 intAnswer, , , ) = oracle.latestRoundData();
 
         return uint256(intAnswer);
     }
 
-    function updateLiquidity() public {
+    function checkLiquidity() public view {
         require(msg.sender == address(pool), "Not authorized");
-
-        uint256 newPoolLiquidity = asset.balanceOf(address(pool));
-        require(newPoolLiquidity > reservedLiquidity, "Liquidity in use");
-
-        int256 liquidityChange = int256(newPoolLiquidity) -
-            int256(totalLiquidity);
-
-        if (liquidityChange >= 0) {
-            totalLiquidity += uint256(liquidityChange);
-        } else {
-            totalLiquidity -= uint256(-liquidityChange);
+        uint availableLiquidity = getAvailableLiquidity();
+        if (availableLiquidity == 0) {
+            revert();
         }
     }
 }

@@ -2,7 +2,9 @@
 
 ## Overview
 
-The `PerpX` protocol serves as an advanced trading platform for users interested in taking leveraged long or short positions on various assets. It allows traders to interact with a decentralized market without owning the underlying asset directly. By using an external price feed oracle, the protocol ensures that the prices for assets are accurate and up to date. In addition to trading functionalities, the protocol includes features for liquidity providers to participate in the market by supplying liquidity.
+- The `PerpX` protocol serves as an advanced trading platform for users interested in taking leveraged long or short positions on various assets. It allows traders to interact with a decentralized market without owning the underlying asset directly.
+- By using an external price feed oracle, the protocol ensures that the prices for assets are accurate and up to date.
+- In addition to trading functionalities, the protocol includes features for liquidity providers to participate in the market by supplying liquidity.
 
 ## Dependencies
 
@@ -11,24 +13,27 @@ The `PerpX` protocol serves as an advanced trading platform for users interested
 - **AggregatorV3Interface Contract**: A custom interface for an external oracle that provides reliable price feeds for the protocol to use in its calculations.
 - **Pool Contract**: A separate contract that manages the liquidity provisions, ensuring that liquidity can be added to or removed from the system in a controlled manner.
 
-## Key Features
+## Contracts
 
-### Liquidity Provision
+### Perp.sol
 
-- **Deposit Liquidity**: Liquidity providers (LPs) can add liquidity to the `PerpX` pool. Deposits are made in the base asset, and LPs receive pool shares in return.
-- **Withdraw Liquidity**: LPs can withdraw their provided liquidity along with any realized profits or losses based on the trader's performance.
+Here's a brief explanation of its functionality:
 
-### Trading
+1. **Contract Initialization**: The `Perp` contract initializes with references to an Oracle and an Asset (presumably a token) along with a maximum leverage value. It also creates a `Pool` contract instance that handles liquidity.
 
-- **Leveraged Positions**: Users can open leveraged long or short positions, amplifying their exposure to price movements of the underlying asset.
-- **Position Management**: Traders can increase the size of an open position or add additional collateral to avoid liquidation.
-- **Closing Positions**: Traders can close their positions to capture their gains or limit losses.
-- **Real-Time Pricing**: The `AggregatorV3Interface` oracle provides real-time price data, ensuring that all trading activities are based on the latest market prices.
+2. **Opening Positions**: Users can open long or short positions by specifying the size and collateral. The position size cannot exceed the collateral times the maximum leverage. When a position is opened, the appropriate amount of the asset is transferred from the user to the contract and recorded.
 
-### Risk Management
+3. **Increasing Position Size**: Users can increase the size of an existing position, recalculating the entry price and ensuring that the increased position doesn't exceed the maximum leverage.
 
-- **Liquidation**: The protocol includes a liquidation mechanism to close undercollateralized positions, protecting the system and LPs from excessive losses.
+4. **Increasing Collateral**: Users can add more collateral to their position.
 
-BTC Amount - 8 decimals
-Collateral (USDC) - 18 decimals
-SCALE = 8 decimals
+5. **Closing Positions**: Users can close their positions, realizing any profits or losses. If the position is in profit, funds are transferred from the pool to the user; if in loss, funds are transferred from the user to the pool. Afterwards, the open interest is updated, and the position is deleted.
+
+6. **Liquidation**: Any account can trigger a liquidation on a position if it's undercollateralized due to market movements. The position is closed, with the asset being transferred to the pool and the user, depending on the remaining collateral after covering the loss.
+
+7. **Available Liquidity**: This is calculated by taking the pool's balance and adjusting for the unrealized PnL (profit and loss) of all open positions. Negative open interest implies overall profit, which increases available liquidity. Positive open interest implies overall loss, which may decrease available liquidity.
+
+> **Decimals**:
+>
+> - **BTC (Index Token)** = 8 decimals
+> - **USDC (Asset & Collateral)** = 18 decimals
