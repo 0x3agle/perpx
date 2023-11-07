@@ -36,4 +36,4 @@ Here's a brief explanation of its functionality:
 > **Decimals**:
 >
 > - **BTC (Index Token)** = 8 decimals
-> - **USDC (Asset & Collateral)** = 18 decimals
+> - **USD (Asset & Collateral)** = 18 decimals //It's not USDC compatible. Why? Too much work (All PRs will be accepted 😎)

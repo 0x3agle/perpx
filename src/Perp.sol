@@ -29,8 +29,8 @@ contract Perp {
     Pool public pool;
     uint8 public maxLeverage;
 
-    uint openShortInUSDC;
-    uint openLongInUSDC;
+    uint openShortInUSD;
+    uint openLongInUSD;
     uint openShortInBTC;
     uint openLongInBTC;
 
@@ -80,10 +80,10 @@ contract Perp {
 
         if (_positionType == PositionType.Long) {
             openLongInBTC += _size;
-            openLongInUSDC += posValue;
+            openLongInUSD += posValue;
         } else {
             openShortInBTC += _size;
-            openShortInUSDC += posValue;
+            openShortInUSD += posValue;
         }
     }
 
@@ -120,14 +120,14 @@ contract Perp {
 
         if (oldPosition.positionType == PositionType.Long) {
             openLongInBTC += amount;
-            openLongInUSDC =
-                openLongInUSDC -
+            openLongInUSD =
+                openLongInUSD -
                 (oldPosition.size * oldPosition.openPrice) +
                 ((oldPosition.size + amount) * newEntryPrice);
         } else {
             openShortInBTC += amount;
-            openShortInUSDC =
-                openShortInUSDC -
+            openShortInUSD =
+                openShortInUSD -
                 (oldPosition.size * oldPosition.openPrice) +
                 ((oldPosition.size + amount) * newEntryPrice);
         }
@@ -200,10 +200,10 @@ contract Perp {
         }
         if (pos.positionType == PositionType.Long) {
             openLongInBTC -= pos.size;
-            openLongInUSDC -= posValue;
+            openLongInUSD -= posValue;
         } else {
             openShortInBTC -= pos.size;
-            openShortInUSDC -= posValue;
+            openShortInUSD -= posValue;
         }
 
         delete positions[msg.sender];
@@ -232,10 +232,10 @@ contract Perp {
 
             if (pos.positionType == PositionType.Long) {
                 openLongInBTC -= pos.size;
-                openLongInUSDC -= posValue;
+                openLongInUSD -= posValue;
             } else {
                 openShortInBTC -= pos.size;
-                openShortInUSDC -= posValue;
+                openShortInUSD -= posValue;
             }
             delete positions[user];
             return amountToLiquidate;
@@ -254,10 +254,10 @@ contract Perp {
         uint poolBalance = asset.balanceOf(address(pool));
         uint currentPrice = getRealtimePrice();
 
-        int totalShortPnL = (int(openShortInUSDC) -
+        int totalShortPnL = (int(openShortInUSD) -
             int(openShortInBTC * currentPrice)) / int(SCALE);
         int totalLongPnL = (int(openLongInBTC * currentPrice) -
-            int(openLongInUSDC)) / int(SCALE);
+            int(openLongInUSD)) / int(SCALE);
 
         int totalOpenInterest = totalShortPnL + totalLongPnL;
 

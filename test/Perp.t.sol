@@ -12,7 +12,7 @@ import {ERC20Mock} from "@openzeppelin/contracts/mocks/token/ERC20Mock.sol";
 contract PerpXTest is Test {
     Perp perp;
     MockV3Aggregator oracle;
-    ERC20Mock usdc;
+    ERC20Mock usd;
     Pool pool;
 
     address public alice; // Long Trader
@@ -28,16 +28,16 @@ contract PerpXTest is Test {
         dave = makeAddr("dave");
 
         //Environment Setup
-        usdc = new ERC20Mock(); //Asset that is deposited by LPs + Collateral provided by traders
-        oracle = new MockV3Aggregator(18, 3500e18); // 1 BTC = 3500 USDC
-        perp = new Perp(address(oracle), address(usdc), 10);
+        usd = new ERC20Mock(); //Asset that is deposited by LPs + Collateral provided by traders
+        oracle = new MockV3Aggregator(18, 3500e18); // 1 BTC = 3500 USD
+        perp = new Perp(address(oracle), address(usd), 10);
         pool = perp.pool();
 
         //Add funds to addresses
-        usdc.mint(alice, 50000e18);
-        usdc.mint(bob, 50000e18);
-        usdc.mint(charlie, 50000e18);
-        usdc.mint(dave, 50000e18);
+        usd.mint(alice, 50000e18);
+        usd.mint(bob, 50000e18);
+        usd.mint(charlie, 50000e18);
+        usd.mint(dave, 50000e18);
     }
 
     /**
@@ -56,7 +56,7 @@ contract PerpXTest is Test {
         uint256 amount
     ) internal returns (uint256 shares) {
         vm.startPrank(user);
-        usdc.approve(address(pool), amount);
+        usd.approve(address(pool), amount);
         shares = pool.deposit(amount, user);
         vm.stopPrank();
     }
@@ -75,7 +75,7 @@ contract PerpXTest is Test {
 
         //Alice opens a Long with size of 5 BTC
         vm.startPrank(alice);
-        usdc.approve(address(perp), 2000e18);
+        usd.approve(address(perp), 2000e18);
         perp.openPosition(5e8, 2000e18, PositionType.Long);
         vm.stopPrank();
         (
@@ -108,7 +108,7 @@ contract PerpXTest is Test {
 
         //Alice opens a Long with size of 5 BTC but does not provide enough collateral
         vm.startPrank(alice);
-        usdc.approve(address(perp), 1000e18);
+        usd.approve(address(perp), 1000e18);
         vm.expectRevert();
         perp.openPosition(5e8, 2000e18, PositionType.Long);
         vm.stopPrank();
