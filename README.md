@@ -33,7 +33,9 @@ Here's a brief explanation of its functionality:
 
 7. **Available Liquidity**: This is calculated by taking the pool's balance and adjusting for the unrealized PnL (profit and loss) of all open positions. Negative open interest implies overall profit, which increases available liquidity. Positive open interest implies overall loss, which may decrease available liquidity.
 
-> **Decimals**:
->
-> - **BTC (Index Token)** = 8 decimals
-> - **USD (Asset & Collateral)** = 18 decimals //It's not USDC compatible. Why? Too much work (All PRs will be accepted 😎)
+## Note
+
+1. Decimals
+   1. **BTC (Index Token)** = 8 decimals
+   2. **USD (Asset & Collateral)** = 18 decimals
+2. The Liquidity Pool is capped at **max utilization of 80%**. In simple terms, if the liquidity pool has `$100`, the `TotalOpenInterest (Long + Short)` cannot be more than `$80`.

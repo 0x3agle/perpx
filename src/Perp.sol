@@ -262,30 +262,19 @@ contract Perp {
         return x >= 0 ? x : -x;
     }
 
-    //Totals the PnL of all open LONG & SHORT positions and compares with Pool balance to get avaialable liquidity
+    //Totals the open interest of all open LONG & SHORT positions and compares with Pool balance to get avaialable liquidity
     function getAvailableLiquidity() public view returns (uint) {
         uint poolBalance = asset.balanceOf(address(pool));
         uint currentPrice = getRealtimePrice();
 
-        int totalShortPnL = (int(openShortInUSD) -
-            int(openShortInBTC * currentPrice)) / int(SCALE);
-        int totalLongPnL = (int(openLongInBTC * currentPrice) -
-            int(openLongInUSD)) / int(SCALE);
+        uint totalOpenInterest = ((openLongInBTC + openShortInBTC) *
+            currentPrice) / SCALE;
+        uint cappedPoolBalance = (poolBalance * 80) / 100; //Liquidity Pool capped at 80% utilization
 
-        int totalOpenInterest = totalShortPnL + totalLongPnL;
-
-        // Subtracting only if poolBalance is greater than totalOpenInterest to prevent underflow.
-        if (totalOpenInterest < 0) {
-            // If totalOpenInterest is negative, the cast to uint would cause underflow.
-            // Adding the magnitude of negative totalOpenInterest to poolBalance increases available liquidity.
-            return poolBalance + uint(-totalOpenInterest);
+        if (totalOpenInterest < cappedPoolBalance) {
+            return cappedPoolBalance - totalOpenInterest;
         } else {
-            // If totalOpenInterest is non-negative, compare and subtract it from poolBalance.
-            if (poolBalance >= uint(totalOpenInterest)) {
-                return poolBalance - uint(totalOpenInterest);
-            } else {
-                return 0;
-            }
+            return 0;
         }
     }
 
